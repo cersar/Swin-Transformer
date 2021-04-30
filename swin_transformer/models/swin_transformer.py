@@ -362,10 +362,19 @@ class BasicLayer(nn.Module):
                  drop_path=0., norm_layer=nn.LayerNorm, downsample=None, use_checkpoint=False):
 
         super().__init__()
+        print(dim,input_resolution)
         self.dim = dim
         self.input_resolution = input_resolution
         self.depth = depth
         self.use_checkpoint = use_checkpoint
+
+        # patch merging layer
+        if downsample is not None:
+            self.downsample = downsample(input_resolution, dim=dim, norm_layer=norm_layer)
+            dim = int(dim*2)
+            input_resolution = (input_resolution[0] // 2, input_resolution[1] // 2)
+        else:
+            self.downsample = None
 
         # build blocks
         self.blocks = nn.ModuleList([
@@ -379,20 +388,14 @@ class BasicLayer(nn.Module):
                                  norm_layer=norm_layer)
             for i in range(depth)])
 
-        # patch merging layer
-        if downsample is not None:
-            self.downsample = downsample(input_resolution, dim=dim, norm_layer=norm_layer)
-        else:
-            self.downsample = None
-
     def forward(self, x):
+        if self.downsample is not None:
+            x = self.downsample(x)
         for blk in self.blocks:
             if self.use_checkpoint:
                 x = checkpoint.checkpoint(blk, x)
             else:
                 x = blk(x)
-        if self.downsample is not None:
-            x = self.downsample(x)
         return x
 
     def extra_repr(self) -> str:
@@ -518,9 +521,15 @@ class SwinTransformer(nn.Module):
         # build layers
         self.layers = nn.ModuleList()
         for i_layer in range(self.num_layers):
-            layer = BasicLayer(dim=int(embed_dim * 2 ** i_layer),
-                               input_resolution=(patches_resolution[0] // (2 ** i_layer),
-                                                 patches_resolution[1] // (2 ** i_layer)),
+            if i_layer == 0:
+                dim = embed_dim
+                input_resolution = (patches_resolution[0], patches_resolution[1])
+            else:
+                dim = int(embed_dim * 2 ** (i_layer-1))
+                input_resolution = (patches_resolution[0] // (2 ** (i_layer-1)),
+                                    patches_resolution[1] // (2 ** (i_layer-1)))
+            layer = BasicLayer(dim=dim,
+                               input_resolution=input_resolution,
                                depth=depths[i_layer],
                                num_heads=num_heads[i_layer],
                                window_size=window_size,
@@ -529,7 +538,7 @@ class SwinTransformer(nn.Module):
                                drop=drop_rate, attn_drop=attn_drop_rate,
                                drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
                                norm_layer=norm_layer,
-                               downsample=PatchMerging if (i_layer < self.num_layers - 1) else None,
+                               downsample=PatchMerging if (i_layer > 0) else None,
                                use_checkpoint=use_checkpoint)
             self.layers.append(layer)
 
