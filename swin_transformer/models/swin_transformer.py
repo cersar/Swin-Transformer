@@ -362,7 +362,6 @@ class BasicLayer(nn.Module):
                  drop_path=0., norm_layer=nn.LayerNorm, downsample=None, use_checkpoint=False):
 
         super().__init__()
-        print(dim,input_resolution)
         self.dim = dim
         self.input_resolution = input_resolution
         self.depth = depth
